@@ -3,7 +3,8 @@ var ServerStatus = {
   Offline :  {id: 1, statusText: "Server is stopped.", textClass: "offline", commandText: "Start", icon: "play_arrow"}, 
   Starting : {id: 2, statusText: "Server is starting...", textClass: "loading", commandText: "Stop", icon: "stop"},  
   Stopping : {id: 3, statusText: "Server is stopping...", textClass: "loading", commandText: "Start", icon: "play_arrow"},
-  SteamPending : {id: 4, statusText: "Server is starting...", textClass: "loading", commandText: "Stop", icon: "stop"}
+  SteamPending : {id: 4, statusText: "Server is starting...", textClass: "loading", commandText: "Stop", icon: "stop"},
+  ProtonPending : {id: 5, statusText: "Server is starting...", textClass: "loading", commandText: "Stop", icon: "stop"}
   };
 var DashboardUrl = "/live/dashboard";
 var DashboardUpdateInterval = 3000;

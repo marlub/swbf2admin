@@ -31,7 +31,8 @@ namespace SWBF2Admin.Gameserver
         Offline = 1,
         Starting = 2,
         Stopping = 3,
-        SteamPending = 4
+        SteamPending = 4,
+        ProtonPending = 5,
     }
 
     public class ServerManager : ComponentBase
@@ -61,6 +62,7 @@ namespace SWBF2Admin.Gameserver
 
         private int steamLaunchRetryCount = 0;
         private GameserverType serverType;
+        private HostingType hostingType;
 
         public ServerManager(AdminCore core) : base(core) { }
 
@@ -68,16 +70,17 @@ namespace SWBF2Admin.Gameserver
         {
             ServerPath = Core.Files.ParseFileName(config.ServerPath);
             serverType = config.ServerType;
+            hostingType = config.HostingType;
             
             if (serverType == GameserverType.Steam)
             {
                 ServerExecutable = ServerPath + "/BattlefrontII.exe";
                 ServerArgs = string.Empty;
             }
-            if (serverType == GameserverType.Aspyr)
+            else if (serverType == GameserverType.Aspyr)
             {
                 ServerExecutable = config.ServerPath + "/Battlefront.exe";
-                //ServerArgs = "-applaunch 2446550 " + config.ServerArgs;
+                ServerArgs = config.ServerArgs;
                 var appid_txt = Path.GetFullPath(ServerPath + "/steam_appid.txt");
                 if (!File.Exists(appid_txt))
                 {
@@ -91,7 +94,11 @@ namespace SWBF2Admin.Gameserver
                 ServerArgs = config.ServerArgs;
             }
 
-         
+            if (hostingType == HostingType.LinuxProton)
+            {
+                ServerProcessName += ".exe";
+            }
+
             UpdateInterval = STEAMMODE_PDECT_TIMEOUT; //updates for detecting steam startup
         }
 
@@ -103,7 +110,7 @@ namespace SWBF2Admin.Gameserver
 
         protected override void OnUpdate()
         {
-            if (Status == ServerStatus.SteamPending)
+            if (Status == ServerStatus.SteamPending || Status == ServerStatus.ProtonPending)
             {
                 if (Attach(true))
                 {
@@ -116,12 +123,45 @@ namespace SWBF2Admin.Gameserver
                     status = ServerStatus.Offline;
                     DisableUpdates();
                 }
-
             }
         }
 
         private Process FindProcess(string name)
         {
+            if (hostingType == HostingType.LinuxProton)
+            {
+                Process pgrep = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "/bin/sh",
+                        ArgumentList = {
+                            "-c",
+                            string.Format("pgrep -f 'Z:{0}'", Path.GetFullPath(ServerExecutable).Replace("/", "\\\\"))
+                        },
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                    }
+                };
+                pgrep.Start();
+                pgrep.WaitForExit(1000);
+                string output = pgrep.StandardOutput.ReadToEnd();
+                pgrep.Close();
+                if (output != "")
+                {
+                    try
+                    {
+                        int pid = Int32.Parse(output);
+                        Process p = Process.GetProcessById(pid);
+                        return p;
+                    }
+                    catch (FormatException)
+                    {
+                        Logger.Log(LogLevel.Error, "Unable to parse process id '{0}'", output);
+                    }
+                }
+                return null;
+            }
             foreach (Process p in Process.GetProcessesByName(name))
             {
                 try
@@ -143,9 +183,15 @@ namespace SWBF2Admin.Gameserver
 
         private bool Attach(bool starting)
         {
-            serverProcess = FindProcess(ServerProcessName);
-            if (serverProcess != null)
+            var process = FindProcess(ServerProcessName);
+            if (process != null)
             {
+                if (hostingType == HostingType.LinuxProton && serverProcess != null && !serverProcess.HasExited)
+                {
+                    serverProcess.EnableRaisingEvents = false;
+                }
+
+                serverProcess = process;
                 serverProcess.EnableRaisingEvents = true;
                 serverProcess.Exited += new EventHandler(ServerProcess_Exited);
                 status = ServerStatus.Online;
@@ -186,8 +232,23 @@ namespace SWBF2Admin.Gameserver
                     WorkingDirectory = Core.Files.ParseFileName(ServerPath)
                 };
 
+                if (hostingType == HostingType.LinuxProton)
+                {
+                    ProcessArgs = "run " + Core.Files.ParseFileName(ServerExecutable) + " " + ProcessArgs;
+                    startInfo = new ProcessStartInfo(Core.Files.ParseFileName("proton"), ProcessArgs)
+                    {
+                        WorkingDirectory = Core.Files.ParseFileName(ServerPath)
+                    };
+
+                    steamLaunchRetryCount = 0;
+                    serverProcess = Process.Start(startInfo);
+                    serverProcess.EnableRaisingEvents = true;
+                    serverProcess.Exited += new EventHandler(ServerProcess_Exited);
+                    status = ServerStatus.ProtonPending;
+                    EnableUpdates();
+                }
                 //if we're in steam mode, steam will start a launcher exe prior to the actual game
-                if (serverType == GameserverType.Steam)
+                else if (serverType == GameserverType.Steam)
                 {
                     InvokeEvent(SteamServerStarting, this, new EventArgs());
                     steamLaunchRetryCount = 0;
@@ -196,7 +257,10 @@ namespace SWBF2Admin.Gameserver
                         serverProcess = Process.Start(startInfo);
                         serverProcess.EnableRaisingEvents = true;
                         serverProcess.Exited += new EventHandler(ServerProcess_Exited);
-                        serverProcess.PriorityClass = ProcessPriorityClass.High;
+                        if (Core.Config.EnableHighPriority)
+                        {
+                            serverProcess.PriorityClass = ProcessPriorityClass.High;
+                        }
                         //Start game minimized because of mouse locking on Aspyr version
                         serverProcess.StartInfo.WindowStyle = ProcessWindowStyle.Minimized;
                     }
@@ -208,7 +272,10 @@ namespace SWBF2Admin.Gameserver
                     serverProcess = Process.Start(startInfo);
                     serverProcess.EnableRaisingEvents = true;
                     serverProcess.Exited += new EventHandler(ServerProcess_Exited);
-                    serverProcess.PriorityClass = ProcessPriorityClass.High;
+                    if (Core.Config.EnableHighPriority)
+                    {
+                        serverProcess.PriorityClass = ProcessPriorityClass.High;
+                    }
 
                     status = ServerStatus.Online;
                     InvokeEvent(ServerStarted, this, new StartEventArgs(false));

@@ -30,6 +30,12 @@ namespace SWBF2Admin.Config
         Aspyr
     }
 
+    public enum HostingType
+    {
+        Windows,
+        LinuxProton
+    }
+
     [ConfigFileInfo(fileName: "./cfg/core.xml", template: "SWBF2Admin.Resources.cfg.core.xml")]
     public class CoreConfiguration
     {
@@ -49,6 +55,7 @@ namespace SWBF2Admin.Config
         public bool EnableHighPriority { get; set; } = true;
         public bool EnableRuntime { get; set; } = false;
         public GameserverType ServerType { get; set; } = GameserverType.Aspyr;
+        public HostingType HostingType { get; set; } = HostingType.Windows;
 
         public bool EnableEmptyRestart { get; set; } = true;
         public int EmptyRestartThreshold { get; set; } = 3600;

@@ -20,7 +20,15 @@
     - Aspyr (2024 Aspyr Release)
   -->
   <ServerType>Aspyr</ServerType>
-  
+
+  <!--
+    server hosting "type"
+    Available options:
+    - Windows (default)
+    - LinuxProton
+  -->
+  <HostingType>Windows</HostingType>
+
   <!--
     path to server's GameData folder
     - use ./ for file access relative to swbf2admin.exe

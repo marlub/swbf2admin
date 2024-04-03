@@ -34,7 +34,7 @@ void bf2server_patch_netupdate()
             0x90, 0x90
     };
 
-    bf2server_patch_asm(0x00000001803818EE-0x0000000180000000,
+    bf2server_patch_asm(0x00000001803818EE - 0x0000000180000000,
                         reinterpret_cast<void*>(pipe_full_patch),
                         sizeof(pipe_full_patch));
 
