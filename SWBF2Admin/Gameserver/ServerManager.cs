@@ -18,6 +18,7 @@
 using System;
 using System.IO;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 using SWBF2Admin.Utility;
 using SWBF2Admin.Structures;
@@ -130,23 +131,21 @@ namespace SWBF2Admin.Gameserver
         {
             if (hostingType == HostingType.LinuxProton)
             {
-                Process pgrep = new Process
+                ProcessStartInfo startInfo = new ProcessStartInfo("/bin/sh")
                 {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = "/bin/sh",
-                        ArgumentList = {
-                            "-c",
-                            string.Format("pgrep -f 'Z:{0}'", Path.GetFullPath(ServerExecutable).Replace("/", "\\\\"))
-                        },
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                    }
+                    ArgumentList = {
+                        "-c",
+                        string.Format("pgrep -f 'Z:{0}'", Path.GetFullPath(ServerExecutable).Replace("/", "\\\\"))
+                    },
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
                 };
-                pgrep.Start();
-                pgrep.WaitForExit(1000);
-                string output = pgrep.StandardOutput.ReadToEnd();
-                pgrep.Close();
+
+                Process process = Process.Start(startInfo);
+                process.WaitForExit(1000);
+                string output = process.StandardOutput.ReadToEnd();
+                process.Close();
+
                 if (output != "")
                 {
                     try
@@ -179,6 +178,39 @@ namespace SWBF2Admin.Gameserver
                 }
             }
             return null;
+        }
+
+        private string FindProcessIdInsideWine()
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo("proton")
+            {
+                ArgumentList = {
+                    "runinprefix",
+                    "tasklist",
+                    "/fi",
+                    $"IMAGENAME eq {ServerProcessName}",
+                    "/fo",
+                    "list",
+                },
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+            };
+
+            Process process = Process.Start(startInfo);
+            process.WaitForExit(5000);
+            string stdOut = process.StandardOutput.ReadToEnd();
+            process.Close();
+
+            Match match = Regex.Match(stdOut, @"PID:\s*([0-9]+)");
+            if (match.Success)
+            {
+                return match.Groups[1].Value;
+            }
+            else
+            {
+                Logger.Log(LogLevel.Error, "Can't find process id inside wine: {0}", stdOut);
+                return null;
+            }
         }
 
         private bool Attach(bool starting)
@@ -357,10 +389,34 @@ namespace SWBF2Admin.Gameserver
                     loader = $"{Core.Files.ParseFileName(Core.Config.ServerPath)}/{DLLLOADER_FILENAME_32}";
                     dll = "rconserver_32.dll";
                 }
-                
+
                 if (File.Exists(loader))
                 {
-                    Process.Start(loader, string.Format("--pid {0} --dll {1}", serverProcess.Id, dll));
+                    if (hostingType == HostingType.LinuxProton)
+                    {
+                        string winePid = FindProcessIdInsideWine();
+                        if (winePid != null)
+                        {
+                            ProcessStartInfo startInfo = new ProcessStartInfo("proton")
+                            {
+                                ArgumentList = {
+                                    "runinprefix",
+                                    loader,
+                                    "--pid",
+                                    winePid,
+                                    "--dll",
+                                    string.Format("Z:{0}\\\\{1}", Path.GetFullPath(ServerPath).Replace("/", "\\\\"), dll),
+                                },
+                            };
+
+                            Process process = Process.Start(startInfo);
+                            process.WaitForExit(5000);
+                        }
+                    }
+                    else
+                    {
+                        Process.Start(loader, string.Format("--pid {0} --dll {1}", serverProcess.Id, dll));
+                    }
                 }
                 else
                 {
